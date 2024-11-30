@@ -14,6 +14,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
 library(p8105.datasets)
+set.seed(1)
 
 knitr::opts_chunk$set(
   fig.width = 6,
@@ -55,8 +56,41 @@ weather_df =
 
 ## Problem 2
 
-test git connection
+Import csv data from the Washington Post GitHub Repository. This dataset includes data on homicides in 50 large US cities. Tidy the data using the code from the class example that used the same dataset. 
 ```{r}
 
+cities_df = 
+  read_csv("data/homicide-data.csv") %>%  
+  mutate(
+    city_state = paste(city, state, sep = ", "),
+    resolved = as.numeric(disposition == "Closed by arrest"),
+    victim_age = as.numeric(victim_age)) %>%  
+  filter(
+    !(city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL")),  # Exclude specified cities
+    victim_race %in% c("White", "Black")
+  ) %>% 
+  select(city_state, resolved, victim_age, victim_race, victim_sex) 
 ```
 
+Fit logistic regression for `city_state` Baltimore, MD.
+```{r}
+fit_logistic = 
+  cities_df %>%  
+  filter(city_state == "Baltimore, MD") %>% 
+  glm(resolved ~ victim_age + victim_race + victim_sex, data = ., family = binomial()) 
+```
+
+Run `broom::tidy`
+```{r}
+fit_logistic %>%  
+  broom::tidy(conf.int = TRUE) %>%  
+  filter(term == "victim_sexMale") %>%
+  mutate(OR = exp(estimate)) %>% 
+  select(term, log_OR = estimate, OR, p.value, conf.low = conf.low, 
+    conf.high = conf.high) %>%  
+  knitr::kable(digits = 3)
+
+
+```
+ 
+Interpretation: The odds of solving a homicide for male victims are 42.6% of the odds for female victims, keeping other variables constant.
