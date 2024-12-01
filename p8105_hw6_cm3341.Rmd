@@ -90,7 +90,52 @@ fit_logistic %>%
     conf.high = conf.high) %>%  
   knitr::kable(digits = 3)
 
-
 ```
  
 Interpretation: The odds of solving a homicide for male victims are 42.6% of the odds for female victims, keeping other variables constant.
+
+
+Glm and nesting for all other cities
+```{r}
+nest_lm_cities = 
+  cities_df %>% 
+  nest(data = -city_state) %>%
+  mutate(
+    models = map(data, ~glm(resolved ~ victim_age + victim_race + victim_sex, data = .x, family = binomial())),
+    results = map(models, ~broom::tidy(.x, conf.int = TRUE))
+  ) %>% 
+  select(city_state, results) %>% 
+  unnest(cols = results) %>% 
+  filter(term == "victim_sexMale") %>% 
+  mutate(OR = exp(estimate))
+```
+
+
+Plot showing the estimated ORs and CIs for each city for solving homicides comparing male victims to female victims. 
+
+```{r}
+
+nest_lm_cities %>% 
+  arrange(OR) %>%
+  mutate(city_state = fct_reorder(city_state, OR)) %>%
+  ggplot(aes(x = city_state, y = OR)) +
+  geom_point() + 
+  facet_wrap(~term) + 
+  geom_errorbar(aes(ymin = exp(conf.low), ymax = exp(conf.high)), width = 0.2)+
+  theme(axis.text.x = element_text(angle = 80, hjust = 1))
+  
+  
+```
+
+Plot interpretation: In this plot, we see that the majority of the points (representing adjusted ORs) fall below 1, a handful of points fall right about 1, and just 3-4 points fall above 1. Points that fall below 1 indicate that male victims in those cities have lower odds to have their homicides resolved compared to female victims, after accounting for victim age and race. Points that fall right around 1 indicate no real difference between the likelihood of male or female victims having their homicide cases resolved, after accounting for victim age and race. Points that fall above 1 indicate that male victims have higher odds of having their homicides resolved compared to female victims, after accounting for victim age and race.
+
+It is worth noting, however, that many of the confidence intervals cross 1, indicating that the adjusted ORs for those cities were not found to be statistically significant. 
+
+## Problem 3
+
+```{r}
+
+```
+
+
+
