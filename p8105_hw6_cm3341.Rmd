@@ -14,7 +14,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
 library(p8105.datasets)
-set.seed(1)
+library(modelr)
 
 knitr::opts_chunk$set(
   fig.width = 6,
@@ -51,7 +51,52 @@ weather_df =
   select(name, id, everything())
 ```
 
+Fit linear model
 
+```{r}
+weather_lm = lm(tmax ~ tmin, data = weather_df)
+summary(weather_lm)
+```
+
+Set up bootstrap
+
+```{r}
+set.seed(1)
+
+bootstrap_samples = tibble(
+  strap_number = 1:5000,
+  strap_sample = map(1:5000, \(i) sample_frac(weather_df, replace = TRUE))
+)
+```
+
+```{r}
+bootstrap_results = 
+  bootstrap_samples %>%
+  mutate(
+    model = map(strap_sample, \(df) lm(tmax ~ tmin, data = df)),
+    r_squared = map_dbl(model, \(mod) broom::glance(mod)$r.squared),
+    log_product = map_dbl(model, \(mod) {
+      coef_estimates = broom::tidy(mod) %>%
+        select(term, estimate) %>%
+        spread(term, estimate)
+      log(coef_estimates$`(Intercept)` * coef_estimates$tmin)
+    })
+  )
+```
+
+Plot the distributions of r squared and log betas
+
+```{r}
+
+bootstrap_results %>%
+  ggplot(aes(x = r_squared)) +
+  geom_density()
+
+
+bootstrap_results %>%
+  ggplot(aes(x = log_product)) +
+  geom_density()
+```
 
 
 ## Problem 2
@@ -149,12 +194,137 @@ bwt_df =
   )
 ```
 
-Let's see if a linear association can be visibly observed between `momage` and `bwt`
+Based on risk factors that can contribute to low birth weight listed on the cleveland clinic website (https://my.clevelandclinic.org/health/diseases/24980-low-birth-weight), I chose to model gestational age in weeks, mother's weight at delivery, and mother's age at delivery as predictors of birth weight.
+
+Fit my proposed linear model.
 ```{r}
-bwt_df %>% 
-  ggplot(aes(x = bwt, y = momage))+
-  geom_point()
-  
+my_mod = lm(bwt ~ gaweeks + delwt + momage, data = bwt_df)
+summary(my_mod)
 ```
 
 
+```{r}
+bwt_df = 
+  bwt_df %>%
+  modelr::add_predictions(my_mod) %>%
+  modelr::add_residuals(my_mod)
+
+
+bwt_df %>%
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point(alpha = 0.5)
+
+bwt_df %>%
+  ggplot(aes(x = resid)) +
+  geom_histogram(bins = 30)
+```
+The residuals seem to follow a normal distribution, therefore, I can feel confident in my use of a linear regression model. 
+
+
+Next, I will create the two other models requested:
+
+* One using length at birth and gestational age as predictors (main effects only)
+
+*One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
+
+
+Model for length at birth and gestational age as predictors as predictors of birth weight. Check for normality.
+```{r}
+length_ga_mod = lm(bwt ~ blength + gaweeks, data = bwt_df)
+summary(length_ga_mod)
+
+bwt_df %>%
+  modelr::add_predictions(length_ga_mod) %>%
+  modelr::add_residuals(length_ga_mod) %>%
+  ggplot(aes(x = pred, y = resid))+
+  geom_point(alpha = 0.5)
+
+bwt_df %>%
+  modelr::add_predictions(length_ga_mod) %>%
+  modelr::add_residuals(length_ga_mod) %>%
+  ggplot(aes(x = resid)) +
+  geom_histogram(bins = 30)
+```
+There seem to be some outliers on the upper end of the distribution. The histogram is quite narrow as well. 
+
+
+Model for head circumference, baby length, baby sex, and all interactions as predictors of birth weight
+
+```{r}
+interactions_model = lm(bwt ~ bhead * blength * babysex, data = bwt_df)
+summary(interactions_model)
+
+bwt_df %>%
+  modelr::add_predictions(interactions_model) %>%
+  modelr::add_residuals(interactions_model) %>%
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point(alpha = 0.5)
+
+bwt_df %>%
+  modelr::add_predictions(interactions_model) %>%
+  modelr::add_residuals(interactions_model) %>%
+  ggplot(aes(x = resid)) +
+  geom_histogram(bins = 30)
+
+
+```
+Likewise, this distribution also shows some outliers on the upper end and still a very narrow distribution around 0. 
+
+
+Now I will compare these models and my original model through cross-validation
+
+```{r}
+cv_df = crossv_mc(bwt_df, n = 100)
+```
+
+
+```{r}
+cv_df = 
+  cv_df %>% 
+  mutate(
+    my_model = map(train, \(df) lm(bwt ~ gaweeks + delwt + momage, data = df)),
+    length_ga_mod = map(train, \(df) lm(bwt ~ blength + gaweeks, data = df)),
+    interactions_model = map(train, \(df) lm(bwt ~ bhead * blength * babysex, data = df))
+  ) %>%
+  mutate(
+    rmse_my_model = map2_dbl(my_model, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_length_ga = map2_dbl(length_ga_mod, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_interactions = map2_dbl(interactions_model, test, \(mod, df) rmse(model = mod, data = df))
+  )
+```
+
+RMSE
+
+```{r}
+cv_summary = cv_df %>%
+  select(starts_with("rmse")) %>%
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse"
+  ) %>%
+  group_by(model) %>%
+  summarize(
+    mean_rmse = mean(rmse),
+    sd_rmse = sd(rmse)
+  )
+
+cv_summary %>%
+  knitr::kable(digits = 3)
+```
+
+RMSE plot
+
+```{r}
+cv_df %>%
+  select(starts_with("rmse")) %>%
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse"
+  ) %>%
+  ggplot(aes(x = model, y = rmse)) +
+  geom_violin()
+```
+
+The `interactions_model` shows both a lower mean RMSE and smaller SD, both indicators of a better prediction model. 
