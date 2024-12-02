@@ -133,9 +133,28 @@ It is worth noting, however, that many of the confidence intervals cross 1, indi
 
 ## Problem 3
 
+Import and clean data
 ```{r}
-
+bwt_df = 
+  read_csv("data/birthweight.csv",  
+  na = c("NA", "."))%>%
+  drop_na() %>% 
+  mutate(
+    babysex = factor(babysex, levels = c(1, 2), labels = c("Male", "Female")),
+    frace = factor(frace, levels = c(1, 2, 3, 4, 8, 9), 
+                   labels = c("White", "Black", "Asian", "Puerto Rican", "Other", "Unknown")),
+    malform = factor(malform, levels = c(0, 1), labels = c("Absent", "Present")),
+    mrace = factor(mrace, levels = c(1, 2, 3, 4, 8), 
+                   labels = c("White", "Black", "Asian", "Puerto Rican", "Other"))
+  )
 ```
 
+Let's see if a linear association can be visibly observed between `momage` and `bwt`
+```{r}
+bwt_df %>% 
+  ggplot(aes(x = bwt, y = momage))+
+  geom_point()
+  
+```
 
 
