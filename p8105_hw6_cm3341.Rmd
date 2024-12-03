@@ -51,52 +51,64 @@ weather_df =
   select(name, id, everything())
 ```
 
-Fit linear model
+I broke down the steps of this problem, probably more than what the professor wants, but I had to in order to understand what I was doing.
+
+First, I set up bootstrap samples, fit the model, extract r squared and computer log (B0*B1). B0 is the y intercept and B1 is the slope.
 
 ```{r}
-weather_lm = lm(tmax ~ tmin, data = weather_df)
-summary(weather_lm)
-```
 
-Set up bootstrap
+set.seed(41)
 
-```{r}
-set.seed(1)
+bootstrap_samples = 
+  weather_df %>% 
+  modelr::bootstrap(n = 5000) 
 
-bootstrap_samples = tibble(
-  strap_number = 1:5000,
-  strap_sample = map(1:5000, \(i) sample_frac(weather_df, replace = TRUE))
-)
-```
-
-```{r}
 bootstrap_results = 
-  bootstrap_samples %>%
+  bootstrap_samples %>% 
   mutate(
-    model = map(strap_sample, \(df) lm(tmax ~ tmin, data = df)),
-    r_squared = map_dbl(model, \(mod) broom::glance(mod)$r.squared),
-    log_product = map_dbl(model, \(mod) {
-      coef_estimates = broom::tidy(mod) %>%
-        select(term, estimate) %>%
-        spread(term, estimate)
+    models = map(strap, \(df) lm(tmax ~ tmin, data = df)),
+    r_squared = map_dbl(models, \(mod) broom::glance(mod)$r.squared),
+    log_beta0_beta1 = map_dbl(models, \(mod) {
+      coef_estimates = broom::tidy(mod) %>% 
+        select(term, estimate) %>% 
+        pivot_wider(names_from = term, values_from = estimate)
       log(coef_estimates$`(Intercept)` * coef_estimates$tmin)
     })
   )
+
+head(bootstrap_results)
 ```
 
-Plot the distributions of r squared and log betas
-
+calculate confidence intervals for each statistic and add them to the dataframe
 ```{r}
 
+bootstrap_results = 
+  bootstrap_results %>%
+  mutate(
+    r_squared_ci_lower = quantile(r_squared, 0.025),
+    r_squared_ci_upper = quantile(r_squared, 0.975),
+    log_beta0_beta1_ci_lower = quantile(log_beta0_beta1, 0.025),
+    log_beta0_beta1_ci_upper = quantile(log_beta0_beta1, 0.975)
+  )
+
+head(bootstrap_results)
+```
+
+Distribution plots
+
+```{r}
 bootstrap_results %>%
   ggplot(aes(x = r_squared)) +
-  geom_density()
+  geom_histogram(bins = 30)
 
 
 bootstrap_results %>%
-  ggplot(aes(x = log_product)) +
-  geom_density()
+  ggplot(aes(x = log_beta0_beta1)) +
+  geom_histogram(bins = 30)
 ```
+
+The r.squared and log(B0*B1) statistics in the bootstrap samples seem to be relatively normally distributed. 
+
 
 
 ## Problem 2
